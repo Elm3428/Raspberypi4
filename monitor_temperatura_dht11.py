@@ -17,9 +17,10 @@ Conexões:
     Anodo (+)  -> Resistor 220Ω -> GPIO 27 (pino 13)
     Catodo (-) -> GND
 
-Dependências:
+Dependências (executar no terminal do Raspberry Pi):
+  sudo apt-get update && sudo apt-get install -y libgpiod2
+  sudo pip3 install adafruit-blinka
   sudo pip3 install adafruit-circuitpython-dht
-  sudo apt-get install libgpiod2
 """
 
 import time
