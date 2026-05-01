@@ -6,13 +6,15 @@
 #
 #  CONEXÕES:
 #  ─────────────────────────────────────────────────
-#   Componente       │  Pino GPIO (BCM)
+#   Componente         │  Pino GPIO (BCM)
 #  ─────────────────────────────────────────────────
-#   HC-SR04 TRIG     │  GPIO 23
-#   HC-SR04 ECHO     │  GPIO 24  (usar divisor de tensão!)
-#   LED Verde        │  GPIO 17  (resistor 220Ω)
-#   LED Amarelo      │  GPIO 27  (resistor 220Ω)
-#   LED Vermelho     │  GPIO 22  (resistor 220Ω)
+#   HC-SR04 DIR TRIG   │  GPIO 23
+#   HC-SR04 DIR ECHO   │  GPIO 24
+#   HC-SR04 ESQ TRIG   │  GPIO 05
+#   HC-SR04 ESQ ECHO   │  GPIO 06
+#   LED Verde          │  GPIO 17
+#   LED Amarelo        │  GPIO 27
+#   LED Vermelho       │  GPIO 22
 #  ─────────────────────────────────────────────────
 #
 #  LÓGICA:
@@ -32,8 +34,13 @@ import os
 import sys
 
 # ── Configuração dos pinos (modo BCM) ──────────────────────
-TRIG = 23       # Pino Trigger do HC-SR04
-ECHO = 24       # Pino Echo do HC-SR04
+# Sensor Direita (monitorando a direita)
+TRIG_DIR = 23
+ECHO_DIR = 24
+
+# Sensor Esquerda (monitorando a esquerda)
+TRIG_ESQ = 5
+ECHO_ESQ = 6
 
 LED_VERDE    = 17
 LED_AMARELO  = 27
@@ -53,10 +60,15 @@ def configurar_gpio():
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
 
-    # Sensor ultrassônico
-    GPIO.setup(TRIG, GPIO.OUT)
-    GPIO.setup(ECHO, GPIO.IN)
-    GPIO.output(TRIG, False)
+    # Sensor Direita
+    GPIO.setup(TRIG_DIR, GPIO.OUT)
+    GPIO.setup(ECHO_DIR, GPIO.IN)
+    GPIO.output(TRIG_DIR, False)
+
+    # Sensor Esquerda
+    GPIO.setup(TRIG_ESQ, GPIO.OUT)
+    GPIO.setup(ECHO_ESQ, GPIO.IN)
+    GPIO.output(TRIG_ESQ, False)
 
     # LEDs
     GPIO.setup(LED_VERDE, GPIO.OUT)
@@ -68,26 +80,26 @@ def configurar_gpio():
     GPIO.output(LED_AMARELO, GPIO.LOW)
     GPIO.output(LED_VERMELHO, GPIO.LOW)
 
-    # Aguarda estabilização do sensor
-    print("⏳ Aguardando estabilização do sensor...")
+    # Aguarda estabilização dos sensores
+    print("⏳ Aguardando estabilização dos sensores...")
     time.sleep(2)
 
 
-def medir_distancia():
+def medir_distancia(trig_pin, echo_pin):
     """
     Realiza a medição de distância usando o HC-SR04.
     Retorna a distância em centímetros.
     """
     # Envia pulso de 10µs no TRIG
-    GPIO.output(TRIG, True)
+    GPIO.output(trig_pin, True)
     time.sleep(0.00001)  # 10 microsegundos
-    GPIO.output(TRIG, False)
+    GPIO.output(trig_pin, False)
 
     # Aguarda o início do pulso ECHO (timeout de 0.1s)
     tempo_inicio = time.time()
     timeout = tempo_inicio + 0.1
 
-    while GPIO.input(ECHO) == 0:
+    while GPIO.input(echo_pin) == 0:
         tempo_inicio = time.time()
         if tempo_inicio > timeout:
             return -1  # Timeout - sem resposta
@@ -96,14 +108,12 @@ def medir_distancia():
     tempo_fim = time.time()
     timeout = tempo_fim + 0.1
 
-    while GPIO.input(ECHO) == 1:
+    while GPIO.input(echo_pin) == 1:
         tempo_fim = time.time()
         if tempo_fim > timeout:
             return -1  # Timeout - pulso muito longo
 
     # Calcula a distância
-    # Velocidade do som ≈ 34300 cm/s
-    # Dividido por 2 (ida e volta)
     duracao = tempo_fim - tempo_inicio
     distancia = (duracao * 34300) / 2
 
@@ -122,26 +132,32 @@ def limpar_terminal():
     os.system('clear')
 
 
-def exibir_dashboard(distancia, estado, leds_status):
+def exibir_dashboard(dist_dir, dist_esq, estado, leds_status):
     """Exibe o dashboard no terminal com informações formatadas."""
     limpar_terminal()
 
     print("╔══════════════════════════════════════════════════╗")
-    print("║     🤖  CONTROLE POR SENSOR ULTRASSÔNICO  🤖    ║")
+    print("║     🤖  CARRINHO AUTÔNOMO - DUAL SENSOR  🤖     ║")
     print("║            Raspberry Pi 4 - HC-SR04             ║")
     print("╠══════════════════════════════════════════════════╣")
     print("║                                                  ║")
 
-    # Distância com barra visual
-    if distancia >= 0:
+    # Função auxiliar para barra visual
+    def gerar_barra(dist):
+        if dist < 0: return "[░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]"
         barra_max = 30
-        barra_len = min(int(distancia), barra_max)
-        barra = "█" * barra_len + "░" * (barra_max - barra_len)
-        print(f"║  📏 Distância: {distancia:6.1f} cm                     ║")
-        print(f"║  [{barra}]  ║")
-    else:
-        print("║  📏 Distância: --- (erro de leitura)            ║")
-        print("║  [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  ║")
+        barra_len = min(int(dist), barra_max)
+        return "[" + "█" * barra_len + "░" * (barra_max - barra_len) + "]"
+
+    # Sensor Direita
+    val_dir = f"{dist_dir:6.1f} cm" if dist_dir >= 0 else "--- (erro) "
+    print(f"║  👉 SENSOR DIREITO : {val_dir}                  ║")
+    print(f"║     {gerar_barra(dist_dir)}  ║")
+
+    # Sensor Esquerda
+    val_esq = f"{dist_esq:6.1f} cm" if dist_esq >= 0 else "--- (erro) "
+    print(f"║  👈 SENSOR ESQUERDO: {val_esq}                  ║")
+    print(f"║     {gerar_barra(dist_esq)}  ║")
 
     print("║                                                  ║")
     print("╠══════════════════════════════════════════════════╣")
@@ -192,54 +208,57 @@ def main():
 
     try:
         while True:
-            # ── Leitura do sensor ──
-            distancia = medir_distancia()
+            # ── Leitura dos sensores ──
+            dist_dir = medir_distancia(TRIG_DIR, ECHO_DIR)
+            dist_esq = medir_distancia(TRIG_ESQ, ECHO_ESQ)
 
-            # Ignora leituras inválidas
-            if distancia < 0 or distancia > 400:
-                exibir_dashboard(-1, "ERRO", (False, False, False))
+            # Determina a menor distância (segurança em primeiro lugar)
+            # Filtra valores negativos (erros) para o cálculo do mínimo
+            leituras_validas = [d for d in [dist_dir, dist_esq] if 0 <= d <= 400]
+            
+            if not leituras_validas:
+                distancia = -1
+            else:
+                distancia = min(leituras_validas)
+
+            # Ignora se ambos derem erro
+            if distancia < 0:
+                exibir_dashboard(dist_dir, dist_esq, "ERRO", (False, False, False))
                 time.sleep(INTERVALO_LEITURA)
                 continue
 
-            # ── Lógica de controle dos LEDs ──
+            # ── Lógica de controle dos LEDs (baseada na menor distância) ──
 
             if em_perigo:
                 # Estamos em estado de perigo (vermelho ligado)
-                # Só sai quando distância >= 21 cm (histerese)
+                # Só sai quando a menor distância >= 21 cm (histerese)
                 if distancia >= DIST_RECUPERACAO:
-                    # Saiu da zona de perigo → volta ao normal
                     em_perigo = False
 
                     if distancia >= DIST_SEGURO:
-                        # Zona segura: só verde
                         definir_leds(verde=True, amarelo=False, vermelho=False)
-                        exibir_dashboard(distancia, "SEGURO", (True, False, False))
+                        exibir_dashboard(dist_dir, dist_esq, "SEGURO", (True, False, False))
                     else:
-                        # Zona de atenção: verde + amarelo
                         definir_leds(verde=True, amarelo=True, vermelho=False)
-                        exibir_dashboard(distancia, "ATENCAO", (True, True, False))
+                        exibir_dashboard(dist_dir, dist_esq, "ATENCAO", (True, True, False))
                 else:
-                    # Continua em perigo
                     definir_leds(verde=False, amarelo=False, vermelho=True)
-                    exibir_dashboard(distancia, "PERIGO", (False, False, True))
+                    exibir_dashboard(dist_dir, dist_esq, "PERIGO", (False, False, True))
 
             else:
                 # Operação normal
                 if distancia >= DIST_SEGURO:
-                    # >= 30 cm → Zona segura: LED Verde ON
                     definir_leds(verde=True, amarelo=False, vermelho=False)
-                    exibir_dashboard(distancia, "SEGURO", (True, False, False))
+                    exibir_dashboard(dist_dir, dist_esq, "SEGURO", (True, False, False))
 
                 elif distancia >= DIST_ATENCAO:
-                    # 20 a 29 cm → Zona de atenção: Verde + Amarelo ON
                     definir_leds(verde=True, amarelo=True, vermelho=False)
-                    exibir_dashboard(distancia, "ATENCAO", (True, True, False))
+                    exibir_dashboard(dist_dir, dist_esq, "ATENCAO", (True, True, False))
 
                 else:
-                    # <= 19 cm → Zona de perigo: só Vermelho ON
                     em_perigo = True
                     definir_leds(verde=False, amarelo=False, vermelho=True)
-                    exibir_dashboard(distancia, "PERIGO", (False, False, True))
+                    exibir_dashboard(dist_dir, dist_esq, "PERIGO", (False, False, True))
 
             time.sleep(INTERVALO_LEITURA)
 
